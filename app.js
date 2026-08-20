@@ -76,6 +76,10 @@ const state = {
   revenueHistory: [],
 };
 
+// Impede reenvio enquanto o navegador ainda aguarda a resposta do servidor.
+let employeeSaveInFlight = false;
+const newRequestKey = () => window.crypto?.randomUUID?.() || `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 // ── Carregamento de dados via API ──
 async function loadClients(){
   const data = await apiCall('/api/clients');
@@ -597,6 +601,7 @@ function renderPaymentReminders(){
 
 function openEmployeeModal(id){
   const e=id?state.employees.find(x=>x.id===id):{};
+  const createRequestId = id ? '' : newRequestKey();
   openModal(`
     <div class="modal-title">${id?'Editar':'Novo'} Funcionário</div>
     <div class="form-row">
@@ -611,10 +616,11 @@ function openEmployeeModal(id){
     <div class="form-group"><label>Observações</label><textarea id="e-notes" rows="2" placeholder="Opcional">${e.notes||''}</textarea></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="_closeModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveEmployee(${id?`'${id}'`:'null'})">💾 Salvar</button>
+      <button id="e-save-btn" class="btn btn-primary" data-create-request-id="${createRequestId}" onclick="saveEmployee(${id?`'${id}'`:'null'})">💾 Salvar</button>
     </div>`);
 }
-function saveEmployee(id){
+async function saveEmployee(id){
+  if(employeeSaveInFlight) return;
   const obj={
     name: document.getElementById('e-name').value.trim(),
     role: document.getElementById('e-role').value.trim(),
@@ -624,17 +630,29 @@ function saveEmployee(id){
     notes: document.getElementById('e-notes').value.trim(),
   };
   if(!obj.name) return toast('Nome é obrigatório','error');
-  saveEmployeeAsync(id,obj);
-}
-async function saveEmployeeAsync(id,obj){
-  const data = id
-    ? await apiCall(`/api/employees/${id}`,'PUT',obj)
-    : await apiCall('/api/employees','POST',obj);
-  if(!data)return;
-  _closeModal();
-  toast('Funcionário salvo! ✅');
-  await loadEmployees();
-  renderEmployees(document.getElementById('content'));
+  const saveButton = document.getElementById('e-save-btn');
+  if(!id) obj.create_request_id = saveButton?.dataset.createRequestId || newRequestKey();
+  employeeSaveInFlight = true;
+  if(saveButton){
+    saveButton.disabled = true;
+    saveButton.textContent = 'Salvando…';
+  }
+  try {
+    const data = id
+      ? await apiCall(`/api/employees/${id}`,'PUT',obj)
+      : await apiCall('/api/employees','POST',obj);
+    if(!data) return;
+    _closeModal();
+    toast('Funcionário salvo! ✅');
+    await loadEmployees();
+    renderEmployees(document.getElementById('content'));
+  } finally {
+    employeeSaveInFlight = false;
+    if(saveButton && document.body.contains(saveButton)){
+      saveButton.disabled = false;
+      saveButton.textContent = '💾 Salvar';
+    }
+  }
 }
 async function deleteEmployee(id){
   if(!confirm('Remover este funcionário? O histórico de vendas dele será mantido.'))return;

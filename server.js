@@ -78,6 +78,7 @@ const initDB = async () => {
       CREATE TABLE IF NOT EXISTS employees (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        create_request_id VARCHAR(64),
         name VARCHAR(255) NOT NULL,
         role VARCHAR(255),
         salary DECIMAL(10,2) DEFAULT 0,
@@ -153,6 +154,10 @@ const initDB = async () => {
     await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS sale_time VARCHAR(5);`);
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS variations JSONB DEFAULT '[]'::jsonb;`);
     await client.query(`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS variation_name VARCHAR(255);`);
+    await client.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS create_request_id VARCHAR(64);`);
+    // Garante que o mesmo clique/reenvio não crie dois funcionários.
+    // Registros antigos não recebem esta chave e permanecem inalterados.
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS employees_user_create_request_id_key ON employees(user_id, create_request_id) WHERE create_request_id IS NOT NULL;`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS employees (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -353,13 +358,24 @@ app.get('/api/employees', auth, async (req, res) => {
   res.json(rows);
 });
 app.post('/api/employees', auth, async (req, res) => {
-  const { name, role, salary, payment_day, phone, notes } = req.body;
+  const { name, role, salary, payment_day, phone, notes, create_request_id } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
+  const requestId = create_request_id ? String(create_request_id).slice(0, 64) : null;
   const { rows } = await Q(
-    'INSERT INTO employees(user_id,name,role,salary,payment_day,phone,notes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-    [req.userId, name.trim(), role || null, salary || 0, payment_day || 5, phone || null, notes || null]
+    `INSERT INTO employees(user_id,create_request_id,name,role,salary,payment_day,phone,notes)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (user_id, create_request_id) WHERE create_request_id IS NOT NULL DO NOTHING
+     RETURNING *`,
+    [req.userId, requestId, name.trim(), role || null, salary || 0, payment_day || 5, phone || null, notes || null]
   );
-  res.status(201).json(rows[0]);
+  if (rows[0]) return res.status(201).json(rows[0]);
+  // Reenvio da mesma requisição: retorna o registro já criado em vez de duplicá-lo.
+  const existing = await Q(
+    'SELECT * FROM employees WHERE user_id=$1 AND create_request_id=$2 LIMIT 1',
+    [req.userId, requestId]
+  );
+  if (existing.rows[0]) return res.status(200).json(existing.rows[0]);
+  return res.status(409).json({ error: 'Não foi possível confirmar o cadastro. Tente novamente.' });
 });
 app.put('/api/employees/:id', auth, async (req, res) => {
   const { name, role, salary, payment_day, phone, notes } = req.body;
