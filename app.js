@@ -1744,7 +1744,7 @@ function renderReports(el){
       <div class="tab" onclick="reportTab('pagamentos',this)">💳 Pagamentos</div>
       <div class="tab" onclick="reportTab('clientes',this)">👤 Clientes</div>
       ${state.employees.length?`<div class="tab" onclick="reportTab('vendedores',this)">🧑‍💼 Vendedores</div>`:''}
-      ${state.employees.length?`<div class="tab" onclick="reportTab('funcionarios',this)">🧾 Funcionários</div>`:''}
+      <div class="tab" onclick="reportTab('funcionarios',this)">🧾 Funcionários</div>
       <div class="tab" onclick="reportTab('mei',this)">🏛️ MEI</div>
       <div class="tab" onclick="reportTab('pdf',this)" style="color:var(--red);font-weight:700">📄 Exportar PDF</div>
     </div>
@@ -1858,29 +1858,49 @@ function reportVendedores(){
 }
 function reportFuncionarios(){
   if(!state.employees.length){
-    return `<div class="card" style="text-align:center;color:var(--muted);padding:32px">Nenhum funcionário cadastrado ainda.</div>`;
+    return `<div class="card" style="text-align:center;color:var(--muted);padding:32px">
+      <div style="font-size:28px;margin-bottom:8px">🧑‍💼</div>
+      <div style="font-weight:700;color:var(--text);margin-bottom:6px">Nenhum funcionário cadastrado ainda</div>
+      <div style="font-size:13px;margin-bottom:16px">Cadastre um colaborador para acompanhar a folha, desempenho e gerar relatórios individuais.</div>
+      <button class="btn btn-primary" onclick="navigate('employees')">+ Cadastrar funcionário</button>
+    </div>`;
   }
   const paid = state.sales.filter(s=>s.status==='paid');
+  const dados = state.employees.map(e=>{
+    const vendas = paid.filter(s=>s.employeeId===e.id);
+    const totalVendido = vendas.reduce((a,s)=>a+s.netTotal,0);
+    const holerite = computeHolerite(e);
+    return { e, vendas, totalVendido, ticketMedio:vendas.length ? totalVendido/vendas.length : 0, holerite };
+  });
+  const folhaBruta = dados.reduce((a,d)=>a+(+d.e.salary||0),0);
+  const custoFolha = dados.reduce((a,d)=>a+d.holerite.custoTotal,0);
+  const custoParcial = dados.some(d=>d.holerite.encargos.incompleto);
+  const totalVendido = dados.reduce((a,d)=>a+d.totalVendido,0);
   return `
-    <div style="display:flex;flex-direction:column;gap:16px">
-      ${state.employees.map(e=>{
-        const vendas = paid.filter(s=>s.employeeId===e.id);
-        const totalVendido = vendas.reduce((a,s)=>a+s.netTotal,0);
-        return `
-        <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-            <div>
-              <div style="font-weight:700;font-size:15px">${e.name}${e.role?' — '+e.role:''}</div>
-              <div style="font-size:12px;color:var(--muted)">Salário bruto: ${R(e.salary)} · Pagamento todo dia ${e.paymentDay}</div>
-            </div>
-            <button class="btn btn-primary btn-sm" onclick="openHoleriteModal('${e.id}')">🧾 Ver Holerite</button>
-          </div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            <div class="card card-metric" style="flex:1;min-width:110px;padding:12px;box-shadow:none;border:1px solid var(--border)"><div class="card-label">Vendas (total)</div><div class="card-value blue" style="font-size:18px">${vendas.length}x</div></div>
-            <div class="card card-metric" style="flex:1;min-width:110px;padding:12px;box-shadow:none;border:1px solid var(--border)"><div class="card-label">Total vendido</div><div class="card-value green" style="font-size:18px">${R(totalVendido)}</div></div>
-          </div>
-        </div>`;
-      }).join('')}
+    <div class="cards-grid" style="margin-bottom:20px">
+      <div class="card card-metric"><div class="card-label">Funcionários cadastrados</div><div class="card-value blue">${dados.length}</div></div>
+      <div class="card card-metric"><div class="card-label">Folha bruta mensal</div><div class="card-value amber">${R(folhaBruta)}</div></div>
+      <div class="card card-metric"><div class="card-label">${custoParcial?'Custo mensal parcial':'Custo mensal estimado'}</div><div class="card-value red">${R(custoFolha)}</div></div>
+      <div class="card card-metric"><div class="card-label">Vendas atribuídas</div><div class="card-value green">${R(totalVendido)}</div></div>
+    </div>
+    ${custoParcial?`<div class="alert-box" style="margin-bottom:16px">⚠️ O custo da folha considera apenas os encargos configuráveis. Confirme o regime tributário e os encargos com seu contador.</div>`:''}
+    <div class="card">
+      <div class="section-title" style="margin-bottom:14px">🧾 Relatório de Funcionários</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Funcionário</th><th>Salário bruto</th><th>Vendas</th><th>Total vendido</th><th>Ticket médio</th><th>Relatórios</th></tr></thead>
+        <tbody>${dados.map(({e,vendas,totalVendido,ticketMedio})=>`<tr>
+          <td><strong>${e.name}</strong><div style="font-size:12px;color:var(--muted)">${e.role||'Função não informada'} · Pagto. dia ${e.paymentDay||'—'}</div></td>
+          <td>${R(e.salary)}</td>
+          <td style="text-align:center">${vendas.length}</td>
+          <td style="font-weight:700;color:var(--green-l)">${R(totalVendido)}</td>
+          <td>${R(ticketMedio)}</td>
+          <td style="white-space:nowrap;display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="openEmployeeReport('${e.id}')">Ver desempenho</button>
+            <button class="btn btn-ghost btn-sm" onclick="openHoleriteModal('${e.id}')">Holerite</button>
+            <button class="btn btn-primary btn-sm" onclick="printEmployeeReport('${e.id}')">🖨️ Gerar relatório</button>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table></div>
     </div>`;
 }
 function openHoleriteModal(employeeId){
@@ -2042,7 +2062,77 @@ function openEmployeeReport(employeeId){
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="_closeModal()">Fechar</button>
+      <button class="btn btn-primary" onclick="printEmployeeReport('${e.id}')">🖨️ Gerar relatório</button>
     </div>`,true);
+}
+
+function printEmployeeReport(employeeId){
+  const e = state.employees.find(x=>x.id===employeeId);
+  if(!e) return;
+  const vendas = state.sales
+    .filter(s=>s.status==='paid' && s.employeeId===employeeId)
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const totalVendido = vendas.reduce((a,s)=>a+s.netTotal,0);
+  const ticketMedio = vendas.length ? totalVendido/vendas.length : 0;
+  const produtos = {};
+  vendas.forEach(s=>(s.items||[]).forEach(i=>{
+    if(!produtos[i.name]) produtos[i.name] = { qtd:0, total:0 };
+    produtos[i.name].qtd += +i.qty || 0;
+    produtos[i.name].total += +i.subtotal || 0;
+  }));
+  const topProdutos = Object.entries(produtos).sort((a,b)=>b[1].total-a[1].total).slice(0,10);
+  const now = new Date();
+  const dataEmissao = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
+  const competencia = now.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const html = `
+    <div class="abnt-cover">
+      <p><strong>${state.user?.name||'—'}</strong></p>
+      <p>${state.user?.cpf_cnpj||'—'}</p>
+      <br/><br/><br/><br/>
+      <p><strong style="font-size:14pt">RELATÓRIO DE FUNCIONÁRIO</strong></p>
+      <p><strong>${e.name}${e.role?' — '+e.role:''}</strong></p>
+      <p>Emissão: ${dataEmissao}</p>
+      <br/><br/><br/><br/><br/><br/><br/><br/>
+      <p>Documento gerado pelo MEI Fácil</p>
+    </div>
+    <div class="abnt-section">
+      <h2>1 DADOS CADASTRAIS</h2>
+      <table>
+        <tr><th>Campo</th><th>Informação</th></tr>
+        <tr><td>Funcionário</td><td>${e.name}</td></tr>
+        <tr><td>Função</td><td>${e.role||'—'}</td></tr>
+        <tr><td>Telefone</td><td>${e.phone||'—'}</td></tr>
+        <tr><td>Dia de pagamento</td><td>${e.paymentDay ? `Dia ${e.paymentDay}` : '—'}</td></tr>
+        <tr><td>Salário bruto registrado</td><td>${R(e.salary)}</td></tr>
+      </table>
+      <h2 class="abnt-section">2 DESEMPENHO DE VENDAS — HISTÓRICO</h2>
+      <table>
+        <tr><th>Indicador</th><th>Valor</th></tr>
+        <tr><td>Vendas pagas atribuídas</td><td>${vendas.length}</td></tr>
+        <tr><td>Total vendido</td><td>${R(totalVendido)}</td></tr>
+        <tr><td>Ticket médio</td><td>${R(ticketMedio)}</td></tr>
+      </table>
+      <h3>Produtos com maior resultado</h3>
+      <table>
+        <tr><th>Produto/Serviço</th><th>Quantidade</th><th>Total vendido</th></tr>
+        ${topProdutos.map(([nome,d])=>`<tr><td>${nome}</td><td>${d.qtd}</td><td>${R(d.total)}</td></tr>`).join('') || '<tr><td colspan="3">Nenhuma venda paga atribuída</td></tr>'}
+      </table>
+      <h3>Últimas vendas pagas</h3>
+      <table>
+        <tr><th>Data</th><th>Cliente</th><th>Total líquido</th></tr>
+        ${vendas.slice(0,10).map(s=>`<tr><td>${s.date ? new Date(s.date+'T12:00:00').toLocaleDateString('pt-BR') : '—'}</td><td>${s.clientName||'Consumidor final'}</td><td>${R(s.netTotal)}</td></tr>`).join('') || '<tr><td colspan="3">Nenhuma venda paga atribuída</td></tr>'}
+      </table>
+      <h2 class="abnt-section">3 HOLERITE / CONTRACHEQUE — ${competencia.toUpperCase()}</h2>
+      ${holeriteTableHtml(e)}
+    </div>
+    <div class="abnt-section"><hr/><p style="font-size:10pt;text-align:center">Relatório gerado pelo sistema MEI Fácil em ${dataEmissao} às ${now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}.</p></div>`;
+  const printEl = document.getElementById('abnt-print');
+  printEl.innerHTML = html;
+  printEl.style.display = 'block';
+  setTimeout(()=>{
+    window.print();
+    setTimeout(()=>{ printEl.style.display = 'none'; }, 500);
+  }, 300);
 }
 
 function openClientReport(clientId){
@@ -2173,7 +2263,7 @@ function reportPDF(){
     {id:'estoque',   label:'📦 Relatório de Estoque',           desc:'Posição atual de estoque de todos os produtos'},
     {id:'clientes',  label:'👥 Relatório de Clientes',          desc:'Cadastro e histórico de compras dos clientes'},
     state.employees.length ? {id:'vendedores', label:'🧑‍💼 Relatório de Vendedores', desc:'Ranking de quem vendeu mais e os produtos mais vendidos'} : null,
-    state.employees.length ? {id:'funcionarios', label:'🧾 Relatório de Funcionários + Holerite', desc:'Dados cadastrais, desempenho de vendas e holerite (contracheque) do(s) funcionário(s)'} : null,
+    {id:'funcionarios', label:'🧾 Relatório de Funcionários + Holerite', desc:'Dados cadastrais, desempenho de vendas e holerite (contracheque) do(s) funcionário(s)'},
     {id:'mei',       label:'🏛️ Relatório de Enquadramento MEI', desc:'Situação do faturamento anual e projeção em relação ao limite'},
     {id:'fluxo',     label:'💰 Relatório de Fluxo de Caixa',   desc:'Todos os lançamentos de entrada e saída'},
   ].filter(Boolean);
