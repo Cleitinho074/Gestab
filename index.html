@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MEI Fácil — Gestão Simplificada</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+<script>
+  // Inicializa o modo escuro antes de renderizar a página para evitar piscos brancos
+  const savedTheme = localStorage.getItem('mei_theme') || 'light';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+</script>
+</head>
+<body>
+
+<div id="auth-page" class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <img src="/logo-blue.png" alt="MEI Fácil" class="auth-logo-img-light" style="height:50px;display:block;margin:0 auto 12px">
+      <div class="auth-logo-sub">Gestão simples para o seu negócio</div>
+    </div>
+    <div id="auth-tab-bar" class="tabs" style="margin-bottom:24px">
+      <div class="tab active" onclick="switchAuth('login')">Entrar</div>
+      <div class="tab" onclick="switchAuth('register')">Cadastrar</div>
+    </div>
+    <div id="auth-login">
+      <div class="form-group"><label>E-mail</label><input type="email" id="login-email" placeholder="seu@email.com"/></div>
+      <div class="form-group"><label>Senha</label><input type="password" id="login-pass" placeholder="••••••••"/></div>
+      <button class="btn btn-primary auth-btn" onclick="doLogin()" style="display: flex; justify-items: center;">Entrar na conta</button>
+      <p style="text-align:center;margin-top:14px;font-size:13px;color:var(--muted)"><a href="#" onclick="demoLogin()" style="color:var(--blue-l)">🎯 Experimentar sem cadastro (conta demo exclusiva)</a></p>
+    </div>
+    <div id="auth-register" style="display:none">
+      <div class="form-group"><label>Nome completo</label><input type="text" id="reg-name" placeholder="João da Silva"/></div>
+      <div class="form-group"><label>E-mail</label><input type="email" id="reg-email" placeholder="seu@email.com"/></div>
+      <div class="form-group"><label>CPF/CNPJ</label><input type="text" id="reg-cpf" placeholder="000.000.000-00 ou 00.000.000/0001-00"/></div>
+      <div class="form-group">
+        <label>Tipo de empresa / enquadramento</label>
+        <select id="reg-business-type" onchange="onRegBusinessTypeChange()" style="width:100%">
+          <option value="MEI">MEI — Microempreendedor Individual (limite R$ 81.000/ano)</option>
+          <option value="ME">ME — Microempresa (limite R$ 360.000/ano)</option>
+          <option value="EPP">EPP — Empresa de Pequeno Porte (limite R$ 4.800.000/ano)</option>
+          <option value="SIMPLES">Simples Nacional (outros portes)</option>
+          <option value="LTDA">LTDA — Sociedade Limitada</option>
+          <option value="AUTONOMO">Profissional Autônomo (sem CNPJ)</option>
+          <option value="OUTRO">Outro</option>
+        </select>
+        <div id="reg-business-desc" style="font-size:12px;color:var(--green-l);margin-top:4px;padding:6px 10px;background:var(--green-x);border-radius:6px">
+          ✅ Limite anual de faturamento: R$ 81.000
+        </div>
+      </div>
+      <div class="form-group"><label>Senha</label><input type="password" id="reg-pass" placeholder="Mínimo 8 caracteres"/></div>
+      <button class="btn btn-primary auth-btn" onclick="doRegister()">Criar conta grátis</button>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="app" style="display:none">
+  <nav class="sidebar" id="sidebar">
+    <div class="logo"><img src="/icon-white.png" alt="MEI Fácil" class="logo-icon-collapsed" style="height:24px;flex-shrink:0"><img src="/logo-white.png" alt="MEI Fácil" class="logo-text" style="height:22px;max-width:150px"></div>
+    <div class="nav">
+      <div class="nav-item active" onclick="navigate('dashboard')"><span class="nav-icon">📊</span><span class="nav-label">Dashboard</span></div>
+      <div class="nav-item" onclick="navigate('clients')"><span class="nav-icon">👥</span><span class="nav-label">Clientes</span></div>
+      <div class="nav-item" onclick="navigate('products')"><span class="nav-icon">📦</span><span class="nav-label">Produtos/Serviços</span></div>
+      <div class="nav-item" onclick="navigate('sales')"><span class="nav-icon">🛒</span><span class="nav-label">Vendas</span></div>
+      <div class="nav-item" onclick="navigate('employees')"><span class="nav-icon">🧑‍💼</span><span class="nav-label">Funcionários</span></div>
+      <div class="nav-item" onclick="navigate('cashflow')"><span class="nav-icon">💰</span><span class="nav-label">Fluxo de Caixa</span></div>
+      <div class="nav-item" onclick="navigate('reports')"><span class="nav-icon">📈</span><span class="nav-label">Relatórios</span></div>
+      <div class="nav-item" onclick="navigate('notes')"><span class="nav-icon">📝</span><span class="nav-label">Notas</span></div>
+      <div class="nav-item" onclick="navigate('settings')"><span class="nav-icon">⚙️</span><span class="nav-label">Configurações</span></div>
+      <div class="nav-item" id="nav-adminseed" style="display:none" onclick="navigate('adminseed')"><span class="nav-icon">🛠️</span><span class="nav-label">Admin (dados demo)</span></div>
+    </div>
+    <div class="collapse-btn" onclick="toggleSidebar()">‹</div>
+  </nav>
+  <div class="main">
+    <header class="topbar">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="cursor:pointer;font-size:20px;display:none" id="menu-btn" onclick="toggleMobile()">☰</span>
+        <span class="topbar-title" id="page-title">Dashboard</span>
+      </div>
+      <div class="topbar-right">
+        <span id="topbar-date" style="font-size:13px;color:var(--muted)" class="hide-mobile"></span>
+        <button class="btn-theme" id="theme-btn" onclick="toggleDarkMode()" title="Alternar modo escuro/claro">☀️</button>
+        <div class="user-badge" id="user-badge" onclick="navigate('settings')">J</div>
+      </div>
+    </header>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<div id="abnt-print"></div>
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal-box"><div id="modal-content"></div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
