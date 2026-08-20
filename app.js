@@ -3162,14 +3162,17 @@ function deleteNote(i){
 // CALCULADORA DE SALÁRIO COM IMPOSTOS (2026)
 // ══════════════════════════════════════════════════════════════
 
-// Tabelas INSS 2026 (progressiva)
+// Valores vigentes a partir da competência janeiro/2026.
+// Fontes: Portaria Interministerial MPS/MF nº 13/2026 e Receita Federal.
+// A calculadora é uma estimativa de folha: piso da categoria, CCT, FAP, FPAS,
+// desoneração e verbas eventuais devem ser conferidos pelo responsável contábil.
 const INSS_TABLE_2026 = [
-  { teto: 1518.00,  aliq: 0.075 },
-  { teto: 2793.88,  aliq: 0.09  },
-  { teto: 4190.83,  aliq: 0.12  },
-  { teto: 8157.41,  aliq: 0.14  },
+  { teto: 1621.00,  aliq: 0.075 },
+  { teto: 2902.84,  aliq: 0.09  },
+  { teto: 4354.27,  aliq: 0.12  },
+  { teto: 8475.55,  aliq: 0.14  },
 ];
-// IRRF 2026
+// Tabela mensal do IRRF a partir de janeiro/2026.
 const IRRF_TABLE_2026 = [
   { teto: 2428.80,  aliq: 0,     deducao: 0       },
   { teto: 2826.65,  aliq: 0.075, deducao: 182.16  },
@@ -3178,8 +3181,12 @@ const IRRF_TABLE_2026 = [
   { teto: Infinity, aliq: 0.275, deducao: 908.73  },
 ];
 const DEDUCAO_DEPENDENTE_IRRF = 189.59;
-const SALARIO_MINIMO_2026 = 1518.00;
+const DESCONTO_SIMPLIFICADO_IRRF_2026 = 607.20;
+const SALARIO_MINIMO_2026 = 1621.00;
 const FGTS_ALIQ = 0.08;
+// Pequeno ajuste evita que valores como 121,575 sejam representados como
+// 121,574999... e arredondados incorretamente para baixo pelo JavaScript.
+const roundCurrency = value => Math.round((value + 1e-9) * 100) / 100;
 
 function calcINSS(salarioBruto){
   // Cálculo progressivo por faixa
@@ -3195,50 +3202,84 @@ function calcINSS(salarioBruto){
     base -= tribut;
     if(salarioBruto <= teto) break;
   }
-  return +inss.toFixed(2);
+  return roundCurrency(inss);
 }
 
-function calcIRRF(baseCalculo, dependentes=0){
-  const baseComDeducoes = baseCalculo - dependentes * DEDUCAO_DEPENDENTE_IRRF;
-  if(baseComDeducoes <= 0) return 0;
+function calcIRRF(salarioBruto, inss, dependentes=0){
+  // A fonte deve usar o desconto simplificado mensal se for mais vantajoso
+  // que as deduções legais (INSS + dependentes, nesta calculadora).
+  const deducoesLegais = inss + dependentes * DEDUCAO_DEPENDENTE_IRRF;
+  const descontoUsado = Math.max(deducoesLegais, DESCONTO_SIMPLIFICADO_IRRF_2026);
+  const baseComDeducoes = Math.max(0, salarioBruto - descontoUsado);
+  let impostoTabela = 0;
   for(const faixa of IRRF_TABLE_2026){
     if(baseComDeducoes <= faixa.teto){
-      return +Math.max(0, baseComDeducoes * faixa.aliq - faixa.deducao).toFixed(2);
+      impostoTabela = Math.max(0, baseComDeducoes * faixa.aliq - faixa.deducao);
+      break;
     }
   }
-  return 0;
+  // Lei nº 15.270/2025: redução mensal a partir de janeiro/2026.
+  // O rendimento tributável usado na redução é o rendimento bruto mensal.
+  let reducao = 0;
+  if(salarioBruto <= 5000){
+    reducao = Math.min(impostoTabela, 312.89);
+  } else if(salarioBruto <= 7350){
+    reducao = Math.max(0, 978.62 - (0.133145 * salarioBruto));
+  }
+  reducao = Math.min(impostoTabela, reducao);
+  return {
+    irrf: roundCurrency(Math.max(0, impostoTabela - reducao)),
+    base: roundCurrency(baseComDeducoes),
+    deducoesLegais: roundCurrency(deducoesLegais),
+    descontoUsado: roundCurrency(descontoUsado),
+    usouSimplificado: descontoUsado === DESCONTO_SIMPLIFICADO_IRRF_2026 && descontoUsado > deducoesLegais,
+    impostoTabela: roundCurrency(impostoTabela),
+    reducao: roundCurrency(reducao),
+  };
 }
 
-// Encargos do empregador por tipo de empresa
-function getEncargosEmpregador(businessType){
-  const tipo = businessType || 'MEI';
-  // MEI: regra especial — pode ter 1 funcionário, paga só FGTS + INSS patronal simplificado
-  if(tipo === 'MEI'){
+const PAYROLL_REGIMES_2026 = {
+  MEI: {
+    label: 'MEI (um empregado)', inssPatronal: 0.03, rat: 0, terceiros: 0,
+    obs: 'MEI pode ter um empregado e recolhe 3% de contribuição patronal + 8% de FGTS sobre a remuneração.',
+  },
+  SIMPLES_PADRAO: {
+    label: 'Simples Nacional — Anexos I, II, III ou V', inssPatronal: 0, rat: 0, terceiros: 0,
+    obs: 'Nesses anexos, a CPP está substituída pelo DAS. O cálculo abaixo inclui o FGTS; confirme o anexo e exceções com o contador.',
+  },
+  SIMPLES_ANEXO_IV: {
+    label: 'Simples Nacional — Anexo IV', inssPatronal: 0.20, rat: 0.01, terceiros: 0,
+    obs: 'No Anexo IV a CPP não está no DAS: há CPP de 20% e RAT. A alíquota do RAT pode variar de 1% a 3%, com ajuste do FAP.',
+    ajustaRat: true,
+  },
+  GERAL: {
+    label: 'Lucro Presumido/Real ou não optante do Simples', inssPatronal: 0.20, rat: 0.01, terceiros: 0.058,
+    obs: 'Estimativa padrão: CPP de 20%, RAT ajustável e terceiros/Sistema S de 5,8%. As alíquotas efetivas dependem de CNAE, FPAS e FAP.',
+    ajustaRat: true, ajustaTerceiros: true,
+  },
+};
+
+// Porte empresarial (ME/EPP) não determina o regime da folha; por isso, fora
+// do MEI a calculadora pede o enquadramento específico antes de fechar o custo.
+function getEncargosEmpregador(businessType, regimeFolha='', ratPercent, terceirosPercent){
+  const regime = businessType === 'MEI' ? 'MEI' : regimeFolha;
+  const regra = PAYROLL_REGIMES_2026[regime];
+  if(!regra){
     return {
-      inssPatronal: 0,       // MEI não paga INSS patronal (paga cota simplificada no DAS)
-      rat: 0,                // RAT não se aplica ao MEI
-      terceiros: 0,          // Sistema S não se aplica
+      inssPatronal: 0, rat: 0, terceiros: 0,
       fgts: FGTS_ALIQ,
-      obs: 'MEI pode ter 1 funcionário. FGTS de 8% obrigatório. INSS patronal incluído no DAS mensal.',
+      incompleto: true,
+      obs: 'ME/EPP é porte, não regime tributário. Selecione o regime da folha para calcular os encargos além do FGTS.',
     };
   }
-  // ME, EPP, Simples Nacional
-  if(['ME','EPP','SIMPLES'].includes(tipo)){
-    return {
-      inssPatronal: 0,       // Simples Nacional isenta INSS patronal
-      rat: 0.01,             // RAT mínimo (Simples Nacional)
-      terceiros: 0,          // Sistema S não se aplica no Simples
-      fgts: FGTS_ALIQ,
-      obs: 'Optantes do Simples Nacional: INSS patronal e Sistema S incluídos no Simples. RAT pago separadamente.',
-    };
-  }
-  // Lucro Presumido / Real (LTDA, OUTRO)
+  const percentual = (valor, padrao) => Number.isFinite(+valor) ? Math.max(0, +valor) / 100 : padrao;
   return {
-    inssPatronal: 0.20,    // 20% INSS patronal
-    rat: 0.02,             // RAT médio 2% (varia por atividade)
-    terceiros: 0.058,      // Sistema S ~ 5,8%
+    inssPatronal: regra.inssPatronal,
+    rat: regra.ajustaRat ? percentual(ratPercent, regra.rat) : regra.rat,
+    terceiros: regra.ajustaTerceiros ? percentual(terceirosPercent, regra.terceiros) : regra.terceiros,
     fgts: FGTS_ALIQ,
-    obs: 'Lucro Presumido/Real: INSS 20%, RAT 1-3%, Sistema S ~5,8%, FGTS 8%.',
+    incompleto: false,
+    obs: regra.obs,
   };
 }
 
@@ -3248,14 +3289,15 @@ function computeHolerite(e){
   const encargos = getEncargosEmpregador(bt);
   const bruto = +e.salary||0;
   const inss = calcINSS(bruto);
-  const irrf = calcIRRF(bruto-inss, 0);
+  const irrfInfo = calcIRRF(bruto, inss, 0);
+  const irrf = irrfInfo.irrf;
   const liquido = +(bruto-inss-irrf).toFixed(2);
   const inssPatr = +(bruto*encargos.inssPatronal).toFixed(2);
   const rat = +(bruto*encargos.rat).toFixed(2);
   const terc = +(bruto*encargos.terceiros).toFixed(2);
   const fgts = +(bruto*encargos.fgts).toFixed(2);
   const custoTotal = +(bruto+inssPatr+rat+terc+fgts).toFixed(2);
-  return { bruto, inss, irrf, liquido, inssPatr, rat, terc, fgts, custoTotal, encargos };
+  return { bruto, inss, irrf, irrfInfo, liquido, inssPatr, rat, terc, fgts, custoTotal, encargos };
 }
 function holeriteTableHtml(e){
   const h = computeHolerite(e);
@@ -3277,7 +3319,7 @@ function holeriteTableHtml(e){
 }
 function openSalaryCalc(){
   const bt = state.businessType || 'MEI';
-  const encargos = getEncargosEmpregador(bt);
+  const regimePadrao = bt === 'MEI' ? 'MEI' : '';
   openModal(`
     <div class="modal-title">🧮 Calculadora de Salário — ${getBusinessLabel(bt)}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -3292,21 +3334,50 @@ function openSalaryCalc(){
     </div>
     <div class="form-group">
       <label>Vale Transporte (R$)</label>
-      <input type="number" id="sc-vt" value="0" min="0" step="0.01" oninput="updateSalaryCalc()" placeholder="0 = não tem"/>
+      <input type="number" id="sc-vt" value="0" min="0" step="0.01" oninput="updateSalaryCalc()" placeholder="Valor mensal fornecido pela empresa"/>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">O empregado participa com o menor valor entre o benefício e 6% do salário-base.</div>
     </div>
     <div class="form-group">
-      <label>Vale Refeição (R$)</label>
+      <label>Vale Refeição/Alimentação pago pela empresa (R$)</label>
       <input type="number" id="sc-vr" value="0" min="0" step="0.01" oninput="updateSalaryCalc()" placeholder="0 = não tem"/>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Não há desconto automático: eventual coparticipação depende do PAT e/ou da convenção coletiva.</div>
     </div>
+    <div class="form-group">
+      <label>Regime da folha</label>
+      <select id="sc-regime" onchange="updateSalaryEmployerFields();updateSalaryCalc()">
+        <option value="" ${!regimePadrao?'selected':''}>Selecione para calcular o custo completo</option>
+        ${Object.entries(PAYROLL_REGIMES_2026).map(([k,v])=>`<option value="${k}" ${regimePadrao===k?'selected':''}>${v.label}</option>`).join('')}
+      </select>
+      <div id="salary-regime-note" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+    </div>
+    <div id="salary-employer-fields"></div>
     <div id="salary-result" style="margin-top:8px"></div>
     <div style="padding:10px 14px;background:var(--blue-x);border-radius:8px;font-size:12px;color:var(--muted);margin-top:12px">
-      ℹ️ ${encargos.obs}
+      ℹ️ Valores nacionais de 2026. O piso da categoria, CCT, FAP, CNAE/FPAS e verbas variáveis podem alterar a folha.
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="_closeModal()">Fechar</button>
     </div>
   `, true);
-  setTimeout(updateSalaryCalc, 50);
+  setTimeout(()=>{ updateSalaryEmployerFields(); updateSalaryCalc(); }, 50);
+}
+
+function updateSalaryEmployerFields(){
+  const regime = document.getElementById('sc-regime')?.value || '';
+  const regra = PAYROLL_REGIMES_2026[regime];
+  const fields = document.getElementById('salary-employer-fields');
+  const note = document.getElementById('salary-regime-note');
+  if(note) note.textContent = regra?.obs || 'ME/EPP é porte empresarial; selecione o regime tributário da folha.';
+  if(!fields) return;
+  if(!regra || (!regra.ajustaRat && !regra.ajustaTerceiros)){
+    fields.innerHTML = '';
+    return;
+  }
+  fields.innerHTML = `
+    <div class="form-row">
+      ${regra.ajustaRat?`<div class="form-group"><label>RAT efetivo (%)</label><input type="number" id="sc-rat" value="${(regra.rat*100).toFixed(1)}" min="0" max="10" step="0.01" oninput="updateSalaryCalc()"/><div style="font-size:11px;color:var(--muted);margin-top:4px">A alíquota-base é 1%, 2% ou 3%; o FAP pode ajustá-la.</div></div>`:''}
+      ${regra.ajustaTerceiros?`<div class="form-group"><label>Terceiros / Sistema S (%)</label><input type="number" id="sc-terceiros" value="${(regra.terceiros*100).toFixed(1)}" min="0" max="20" step="0.01" oninput="updateSalaryCalc()"/><div style="font-size:11px;color:var(--muted);margin-top:4px">5,8% é uma referência comum; confirme pelo FPAS/CNAE.</div></div>`:''}
+    </div>`;
 }
 
 function updateSalaryCalc(){
@@ -3316,13 +3387,16 @@ function updateSalaryCalc(){
   const vrBruto  = parseFloat(document.getElementById('sc-vr')?.value)    || 0;
 
   const bt = state.businessType || 'MEI';
-  const encargos = getEncargosEmpregador(bt);
+  const regimeFolha = document.getElementById('sc-regime')?.value || '';
+  const ratPercent = parseFloat(document.getElementById('sc-rat')?.value);
+  const terceirosPercent = parseFloat(document.getElementById('sc-terceiros')?.value);
+  const encargos = getEncargosEmpregador(bt, regimeFolha, ratPercent, terceirosPercent);
 
   // Descontos do funcionário
   const inss    = calcINSS(bruto);
   const vtDesc  = vtBruto > 0 ? +Math.min(vtBruto, bruto * 0.06).toFixed(2) : 0; // máx 6% do salário
-  const baseIRRF = bruto - inss - vtDesc;
-  const irrf    = calcIRRF(baseIRRF, dep);
+  const irrfInfo = calcIRRF(bruto, inss, dep);
+  const irrf    = irrfInfo.irrf;
   const totalDesc = inss + irrf + vtDesc;
   const liquido  = +(bruto - totalDesc).toFixed(2);
 
@@ -3332,7 +3406,12 @@ function updateSalaryCalc(){
   const terc     = +(bruto * encargos.terceiros).toFixed(2);
   const fgts     = +(bruto * encargos.fgts).toFixed(2);
   const totalEnc = inssPatr + rat + terc + fgts;
-  const custoTotal = +(bruto + totalEnc + vrBruto).toFixed(2);
+  const vtEmpregador = +Math.max(0, vtBruto - vtDesc).toFixed(2);
+  const custoFolha = +(bruto + totalEnc).toFixed(2);
+  const custoTotal = +(custoFolha + vtEmpregador + vrBruto).toFixed(2);
+  const provisao13 = +(custoFolha / 12).toFixed(2);
+  const provisaoFeriasAdicional = +(custoFolha / 36).toFixed(2);
+  const custoAnual = +(custoFolha * (12 + 1 + 1/3) + (vtEmpregador + vrBruto) * 12).toFixed(2);
 
   const el = document.getElementById('salary-result');
   if(!el) return;
@@ -3354,6 +3433,7 @@ function updateSalaryCalc(){
           ${irrf>0?`<div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--red-l)">
             <span>(-) IRRF</span><span>-${R(irrf)}</span>
           </div>`:''}
+          <div style="font-size:11px;color:var(--muted);padding:2px 0 5px">IRRF: ${irrfInfo.usouSimplificado?'desconto simplificado':'deduções legais'} de ${R(irrfInfo.descontoUsado)}${irrfInfo.reducao>0?` · redução legal 2026: ${R(irrfInfo.reducao)}`:''}</div>
           ${vtDesc>0?`<div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--red-l)">
             <span>(-) Desc. VT (6% máx)</span><span>-${R(vtDesc)}</span>
           </div>`:''}
@@ -3371,9 +3451,9 @@ function updateSalaryCalc(){
           <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)">
             <span>Salário Bruto</span><strong>${R(bruto)}</strong>
           </div>
-          ${inssPatr>0?`<div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--amber)">
+          ${encargos.incompleto?`<div style="padding:5px 0;font-size:11px;color:var(--red-l)">⚠️ Regime da folha não informado: este custo não inclui CPP, RAT ou terceiros.</div>`:inssPatr>0?`<div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--amber)">
             <span>(+) INSS Patronal 20%</span><span>+${R(inssPatr)}</span>
-          </div>`:'<div style="padding:5px 0;font-size:11px;color:var(--green-l)">✅ INSS patronal isento (${getBusinessLabel(bt)})</div>'}
+          </div>`:'<div style="padding:5px 0;font-size:11px;color:var(--green-l)">✅ CPP substituída pelo DAS</div>'}
           ${rat>0?`<div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--amber)">
             <span>(+) RAT ${(encargos.rat*100).toFixed(0)}%</span><span>+${R(rat)}</span>
           </div>`:''}
@@ -3383,11 +3463,14 @@ function updateSalaryCalc(){
           <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--amber)">
             <span>(+) FGTS 8%</span><span>+${R(fgts)}</span>
           </div>
+          ${vtEmpregador>0?`<div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--amber)">
+            <span>(+) Vale-Transporte pago pela empresa</span><span>+${R(vtEmpregador)}</span>
+          </div>`:''}
           ${vrBruto>0?`<div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--amber)">
             <span>(+) Vale Refeição</span><span>+${R(vrBruto)}</span>
           </div>`:''}
           <div style="display:flex;justify-content:space-between;padding:6px 10px;margin-top:4px;background:var(--red-x);border-radius:6px;font-weight:700;color:var(--red-l)">
-            <span>💸 Custo Total Mensal</span><span>${R(custoTotal)}</span>
+            <span>💸 ${encargos.incompleto?'Custo mensal parcial':'Custo Total Mensal'}</span><span>${R(custoTotal)}</span>
           </div>
           <div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center">
             Encargos: ${R(totalEnc)} (${bruto>0?((totalEnc/bruto)*100).toFixed(1):0}% do salário bruto)
@@ -3396,10 +3479,11 @@ function updateSalaryCalc(){
       </div>
     </div>
     <div style="margin-top:12px;padding:10px 14px;background:var(--amber-x);border-radius:8px;font-size:12px">
-      ⚠️ <strong>13º Salário:</strong> Reserve ${R(bruto/12)}/mês • 
-      <strong>Férias (1/3):</strong> Reserve ${R(bruto*1.333/12)}/mês •
-      <strong>Custo real anual (com 13º+férias):</strong> ≈ ${R(custoTotal*14.33)}
-    </div>`;
+      ⚠️ <strong>Provisão do 13º:</strong> ${R(provisao13)}/mês • 
+      <strong>Provisão do adicional de férias (1/3):</strong> ${R(provisaoFeriasAdicional)}/mês •
+      <strong>${encargos.incompleto?'Estimativa anual parcial':'Custo anual estimado (13º + adicional de férias):'}</strong> ≈ ${R(custoAnual)}
+    </div>
+    ${encargos.incompleto?`<div style="margin-top:8px;padding:10px 14px;background:var(--red-x);border-radius:8px;font-size:12px;color:var(--red-l)">⚠️ Selecione o regime da folha para incluir corretamente CPP, RAT e demais contribuições.</div>`:''}`;
 }
 
 // Filtra produtos em tempo real sem re-renderizar o header/input
