@@ -43,7 +43,7 @@ a{color:var(--blue-l);text-decoration:none}
 .app{display:flex;min-height:100vh}
 .sidebar{width:220px;background:var(--blue);color:#fff;display:flex;flex-direction:column;flex-shrink:0;transition:width .25s ease;position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto}
 .sidebar.collapsed{width:60px}
-.logo{padding:20px 16px;font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.15)}
+.logo{padding:20px 16px;font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.15); justify-content: center}
 .logo-icon{font-size:22px;flex-shrink:0; align-self:center}
 .logo-text,.nav-label{transition:opacity .2s; align-self:center}
 .logo-icon-collapsed{display:flex; align-self:center}
