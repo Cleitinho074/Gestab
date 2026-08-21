@@ -102,7 +102,7 @@ tr:hover td{background:#F7FAFC}
 .badge-purple{background:var(--purple-x);color:var(--purple)}
 
 /* Buttons */
-.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:opacity .15s,transform .1s}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:opacity .15s,transform .1s; justify-content: center;}
 .btn:active{transform:scale(.97)}
 .btn-primary{background:var(--blue-l);color:#fff}
 .btn-primary:hover,.btn-success:hover,.btn-danger:hover{opacity:.9}
