@@ -45,7 +45,7 @@ a{color:var(--blue-l);text-decoration:none}
 .sidebar.collapsed{width:60px}
 .logo{padding:20px 16px;font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.15)}
 .logo-icon{font-size:22px;flex-shrink:0}
-.logo-text,.nav-label{transition:opacity .2s}
+.logo-text,.nav-label{transition:opacity .2s; align-self:center}
 .logo-icon-collapsed{display:none}
 .sidebar.collapsed .logo-icon-collapsed{display:block}
 .sidebar.collapsed .logo-text,.sidebar.collapsed .nav-label{opacity:0;width:0}
